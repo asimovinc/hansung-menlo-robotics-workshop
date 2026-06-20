@@ -1,0 +1,19 @@
+[project]
+name = "menlo-robot-programs"
+version = "0.1.0"
+description = "Workshop support package for Menlo robot SDK perception, navigation, and agent notebooks."
+requires-python = ">=3.10"
+dependencies = [
+    "menlo-robot-sdk[livekit]",
+    "numpy",
+    "opencv-python",
+    "Pillow",
+    "python-dotenv",
+    "requests",
+]
+
+[project.scripts]
+menlo-run = "menlo_runner.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["menlo_runner*"]
