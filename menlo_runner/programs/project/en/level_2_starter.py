@@ -14,6 +14,7 @@ parts your team should edit, improve, test, and explain in the presentation.
 
 import asyncio
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -62,8 +63,12 @@ class AgentMemory:
 
     delivered_count: int = 0
     held_color: str | None = None
+    active_color: str | None = None
+    stage: str = "need_cube"
+    search_turns: int = 0
     failed_attempts: dict[str, int] = field(default_factory=dict)
     completed_colors: list[str] = field(default_factory=list)
+    skipped_colors: list[str] = field(default_factory=list)
     logs: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -76,10 +81,43 @@ class Observation:
     note: str = ""
 
 
+@dataclass(frozen=True)
+class ScannedDetection:
+    """Color detection annotated with the head pose used for that camera frame.
+
+    This is intentionally strategy-neutral. Level 1 teams can use the full
+    bearing for coordinate estimates; Level 2 teams can use it for closed-loop
+    visual centering. Teams may add confidence, target type, or depth fields.
+    """
+
+    color: str
+    angle_deg: float
+    blob_area: int
+    centroid: tuple[int, int]
+    bbox: tuple[int, int, int, int]
+    head_yaw: float
+    head_pitch: float
+
+    @property
+    def full_bearing_deg(self) -> float:
+        """Approximate body-relative bearing: image angle plus head yaw."""
+        return self.angle_deg + math.degrees(self.head_yaw)
+
+
 def parse_agent_decision(text: str) -> AgentDecision | None:
     """Parse and validate the required structured LLM JSON output."""
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.lower().startswith("json"):
+            stripped = stripped[4:].strip()
+    if not stripped.startswith("{"):
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start >= 0 and end > start:
+            stripped = stripped[start : end + 1]
     try:
-        data = json.loads(text)
+        data = json.loads(stripped)
     except json.JSONDecodeError:
         return None
 
@@ -115,7 +153,9 @@ def build_decision_context(
         {
             "color": detection.color,
             "angle_deg": detection.angle_deg,
+            "full_bearing_deg": round(getattr(detection, "full_bearing_deg", detection.angle_deg), 1),
             "blob_area": detection.blob_area,
+            "bbox": detection.bbox,
         }
         for detection in observation.detections
     ]
@@ -123,8 +163,11 @@ def build_decision_context(
         "task": task,
         "visible_targets": visible,
         "held_color": memory.held_color,
+        "active_color": memory.active_color,
+        "stage": memory.stage,
         "delivered_count": memory.delivered_count,
         "completed_colors": memory.completed_colors,
+        "skipped_colors": memory.skipped_colors,
         "failed_attempts": memory.failed_attempts,
         "last_result": last_result,
         "note": observation.note,
@@ -201,8 +244,9 @@ async def place_nearest_zone(ctx: Any) -> Any:
 def result_summary(result: Any) -> dict[str, Any]:
     """Convert SDK results into a small loggable dictionary."""
     error = getattr(result, "error", None)
+    status = getattr(result, "status", None)
     return {
-        "status": getattr(result, "status", None),
+        "status": str(status) if status is not None else None,
         "error": getattr(error, "message", None) if error else None,
     }
 
@@ -218,7 +262,18 @@ async def scan_head(
     for yaw in yaws:
         await set_head(ctx, yaw=yaw, pitch=pitch)
         await asyncio.sleep(0.4)
-        all_detections.extend(await perceive(ctx))
+        for detection in await perceive(ctx):
+            all_detections.append(
+                ScannedDetection(
+                    color=detection.color,
+                    angle_deg=detection.angle_deg,
+                    blob_area=detection.blob_area,
+                    centroid=detection.centroid,
+                    bbox=detection.bbox,
+                    head_yaw=yaw,
+                    head_pitch=pitch,
+                )
+            )
     return all_detections
 
 
@@ -322,6 +377,7 @@ async def visual_search(ctx: Any, target_color: str | None = None) -> bool:
     TODO:
     - Design scan patterns with set_head and/or body rotation.
     - Decide how to distinguish cubes from pads if needed.
+    - Use detection.full_bearing_deg when useful for visual centering.
     - Return whether a useful target was found.
     """
     await scan_head(ctx)
@@ -334,6 +390,7 @@ async def visual_navigate_to_target(ctx: Any, target_color: str | None) -> bool:
     TODO:
     - Observe, move briefly, observe again, then correct or stop.
     - Handle target loss, overshoot, and obstacles.
+    - Use detection.full_bearing_deg when useful for steering corrections.
     - Use set_head and set_velocity only; do not call go_to.
     """
     return False
