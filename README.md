@@ -59,7 +59,8 @@ py -m menlo_runner.cli basics-demo
 py -m menlo_runner.cli perception-demo
 py -m menlo_runner.cli navigation-demo
 py -m menlo_runner.cli agent-demo
-py -m menlo_runner.cli student-program
+py -m menlo_runner.cli level-1-starter
+py -m menlo_runner.cli level-2-starter
 ```
 
 The demos create a simulated robot, print a viewer URL, wait for you to open it in Chrome, run the selected program, and then clean up the robot.
@@ -97,5 +98,7 @@ quit                     Disconnect, delete the robot, and exit
 - `menlo_runner.programs`: runnable examples for concepts already introduced in the student notebooks
 
 Exercise solutions are intentionally not included. Complete the exercise cells in the
-student notebooks, or write the equivalent code in `student_program.py` when working in an IDE.
+student notebooks. For the final project, use the level-specific starters in
+`notebooks/project/` or `menlo_runner/programs/project/en/level_1_starter.py` and
+`menlo_runner/programs/project/en/level_2_starter.py`.
 

@@ -58,7 +58,8 @@ py -m menlo_runner.cli basics-demo
 py -m menlo_runner.cli perception-demo
 py -m menlo_runner.cli navigation-demo
 py -m menlo_runner.cli agent-demo
-py -m menlo_runner.cli student-program
+py -m menlo_runner.cli level-1-starter
+py -m menlo_runner.cli level-2-starter
 ```
 
 데모는 시뮬레이션 로봇을 생성하고 뷰어 URL을 출력합니다. Chrome에서 뷰어를 열 때까지 기다린 뒤 선택한 프로그램을 실행하고 마지막에 로봇을 정리합니다.
@@ -95,4 +96,4 @@ quit                     연결 해제, 로봇 삭제 후 종료
 - `menlo_runner.scene`: 장면 상태 및 큐브/패드 도우미
 - `menlo_runner.programs`: 학생 노트북에서 이미 배운 개념을 실행하는 예제
 
-연습 문제 해답은 의도적으로 포함하지 않았습니다. 학생용 노트북의 연습 문제 셀을 직접 완성하거나 IDE에서 작업할 때 `student_program.py`에 같은 기능을 작성하세요.
+연습 문제 해답은 의도적으로 포함하지 않았습니다. 학생용 노트북의 연습 문제 셀을 직접 완성하세요. 최종 프로젝트는 `notebooks/project/`의 레벨별 스타터 노트북 또는 `menlo_runner/programs/project/ko/level_1_starter_ko.py`, `menlo_runner/programs/project/ko/level_2_starter_ko.py`를 사용하세요.

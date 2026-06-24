@@ -24,7 +24,8 @@ PROGRAMS = {
     "perception-demo": ("menlo_runner.programs.perception_demo", False),
     "navigation-demo": ("menlo_runner.programs.navigation_demo", False),
     "agent-demo": ("menlo_runner.programs.agent_demo", True),
-    "student-program": ("menlo_runner.programs.student_program", False),
+    "level-1-starter": ("menlo_runner.programs.project.en.level_1_starter", False),
+    "level-2-starter": ("menlo_runner.programs.project.en.level_2_starter", False),
 }
 
 
@@ -150,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers.add_parser(command)
 
     custom = subparsers.add_parser("custom", help="Run a module that exposes async def run(ctx).")
-    custom.add_argument("module", help="Import path, for example menlo_runner.programs.student_program")
+    custom.add_argument("module", help="Import path, for example menlo_runner.programs.project.en.level_1_starter")
     custom.add_argument(
         "--tokamak",
         action="store_true",
