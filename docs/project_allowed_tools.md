@@ -2,7 +2,17 @@
 
 Use this page while building your project agent. It lists SDK calls and helper functions that are safe to use in submitted project code.
 
-Submitted agents must derive targets from camera observations, the fixed natural-language task, `robot_status`, and structured LLM decisions. Do not use `scene_state`, ground-truth coordinates, exact entity IDs, or the global asset map.
+Submitted agents must derive targets from camera observations, the fixed natural-language task, the fixed color/sign matching rules, `robot_status`, and structured LLM decisions. Do not use `scene_state`, ground-truth coordinates, exact entity IDs, or the global asset map.
+
+Fixed destination signage is allowed information:
+
+| Sign | Meaning |
+| --- | --- |
+| A | Conveyor/cube source area, not a destination pad |
+| B with red background | Red cube destination |
+| C with green background | Green cube destination |
+| D with blue background | Blue cube destination |
+| E with yellow background | Yellow cube destination |
 
 ## Allowed Tools by Level
 
@@ -18,7 +28,7 @@ Submitted agents must derive targets from camera observations, the fixed natural
 | `ctx.state("robot_status")` | Allowed | Allowed | Robot pose, status, and neck state |
 | `ctx.state("scene_state")` | Not allowed | Not allowed | Debug/workshop only |
 | Text LLM decision call | Required | Required | High-level agent decisions |
-| VLM call | Optional | Optional | Extra scene understanding |
+| VLM call | Optional | Optional | Extra scene understanding, including sign-letter reading |
 
 ## SDK Skills
 
@@ -227,9 +237,27 @@ from menlo_runner.llm import (
 ```
 
 - `call_llm(messages, api_key=...)`: calls the text LLM.
-- `ask_vlm(jpeg_bytes, prompt, api_key=...)`: asks a VLM about a camera frame.
+- `ask_vlm(jpeg_bytes, prompt, api_key=...)`: asks a VLM about a camera frame. It may be used to read or verify fixed destination signage from observations.
 - `parse_tool_call(text)`: parses a JSON tool call from an LLM response.
 - `build_system_prompt(tools)`: builds a tool-use system prompt.
+
+Example VLM sign-reading prompt:
+
+```python
+jpeg = await ctx.get_vision("pov")
+reply = ask_vlm(
+    jpeg,
+    (
+        "Read the floating warehouse signs visible in this robot camera frame. "
+        "A is the conveyor/cube source area and is not a destination. "
+        "Destination signs are B red, C green, D blue, E yellow. "
+        "Return JSON with visible sign letters, colors, rough positions, and confidence."
+    ),
+    api_key=tokamak_api_key,
+)
+```
+
+Use VLM output as observation evidence for the text-LLM decision loop and validation checks. Do not use VLMs to bypass the required structured decision object, and do not combine VLM output with `scene_state`, exact entity IDs, or ground-truth coordinates.
 
 The default `WorkshopAgent` is a learning example, not a submission-ready project agent, because its default tools use `scene_state` and exact entity IDs. You may adapt its structure with project-safe tools.
 

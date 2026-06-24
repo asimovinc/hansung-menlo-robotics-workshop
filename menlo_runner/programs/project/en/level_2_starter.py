@@ -18,6 +18,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from menlo_runner.llm import ask_vlm
 from menlo_runner.perception import detect_color_blobs
 
 
@@ -27,6 +28,19 @@ from menlo_runner.perception import detect_color_blobs
 # Keep the task fixed. The challenge is to make one agent that handles different
 # cube-color orders and starting positions without source-code changes.
 TASK = "Find and sort the six cubes in the warehouse into their matching destination pads."
+
+# Fixed signage is allowed information. Do not turn this into exact coordinates
+# or entity IDs; use it only to interpret observations.
+DESTINATION_SIGN_RULES = {
+    "red": "B",
+    "green": "C",
+    "blue": "D",
+    "yellow": "E",
+}
+SIGNAGE_NOTE = (
+    "A is the conveyor/cube source area, not a destination. "
+    "Destination signs are B red, C green, D blue, E yellow."
+)
 
 # The LLM must choose high-level actions from this set. It should not output raw
 # velocity commands; deterministic code should translate decisions into robot actions.
@@ -79,6 +93,7 @@ class Observation:
     robot_status: Any
     detections: list[Any]
     note: str = ""
+    vlm_summary: str = ""
 
 
 @dataclass(frozen=True)
@@ -171,6 +186,8 @@ def build_decision_context(
         "failed_attempts": memory.failed_attempts,
         "last_result": last_result,
         "note": observation.note,
+        "signage_note": SIGNAGE_NOTE,
+        "vlm_summary": observation.vlm_summary,
     }
 
 
@@ -188,6 +205,25 @@ async def get_robot_status(ctx: Any) -> Any:
 async def get_camera_frame(ctx: Any) -> bytes:
     """Capture the POV camera frame."""
     return await ctx.get_vision("pov")
+
+
+def build_signage_vlm_prompt(held_color: str | None = None) -> str:
+    """Build a strategy-neutral prompt for reading fixed warehouse signage."""
+    target = ""
+    if held_color in DESTINATION_SIGN_RULES:
+        target = f" The robot is holding a {held_color} cube, so the target destination sign is {DESTINATION_SIGN_RULES[held_color]}."
+    return (
+        "Read the floating warehouse signs visible in this robot camera frame. "
+        f"{SIGNAGE_NOTE} "
+        "Return JSON with visible sign letters, colors, rough left/center/right positions, and confidence."
+        + target
+    )
+
+
+async def ask_vlm_about_frame(ctx: Any, prompt: str, *, api_key: str) -> str:
+    """Ask the project-allowed VLM helper about the current POV frame."""
+    jpeg = await get_camera_frame(ctx)
+    return ask_vlm(jpeg, prompt, api_key=api_key)
 
 
 async def perceive(ctx: Any) -> list[Any]:
@@ -325,6 +361,7 @@ async def observe_world(ctx: Any, memory: AgentMemory) -> Observation:
     TODO:
     - Decide when to scan with set_head and when to use a single frame.
     - Add VLM output, confidence, target type, or search notes if useful.
+      For signage, use build_signage_vlm_prompt() with ask_vlm_about_frame().
     - Keep scene_state and exact entity IDs out of submitted code.
     """
     robot_status = await get_robot_status(ctx)

@@ -17,9 +17,20 @@ Each run uses a static warehouse environment with:
 - Six cubes
 - Randomized cube colors
 - Fixed destination-pad locations
+- Fixed destination signage and color backgrounds
 - Fixed obstacle layout, unless additional layouts become available
 - Fixed color-to-pad matching rules
 - Randomized robot starting position, generated as an `(x, y)` position before student code starts
+
+The fixed destination signage is:
+
+| Sign | Meaning |
+| --- | --- |
+| A | Conveyor/cube source area, not a destination pad |
+| B with red background | Red cube destination |
+| C with green background | Green cube destination |
+| D with blue background | Blue cube destination |
+| E with yellow background | Yellow cube destination |
 
 ## Allowed Information
 
@@ -27,6 +38,7 @@ Submitted agents may use:
 
 - Camera observations
 - The fixed natural-language task
+- The fixed color-to-pad and sign-to-pad matching rules
 - `robot_status`, including robot pose and neck state
 - Action results
 - Project-allowed SDK skills and helper functions
@@ -90,11 +102,14 @@ stop
 
 VLM use is optional. Teams may use VLMs for richer scene understanding, but the required AI-agent component is the text LLM decision loop.
 
+For example, teams may use a VLM to read or verify fixed destination signage from camera frames, such as distinguishing the green conveyor sign A from the green destination sign C. VLM output should be treated as observation evidence for the high-level loop; it does not replace structured text-LLM decisions or action validation.
+
 ## Level 1: Coordinate-Guided Sorting Agent
 
 Completion target: correctly sort all six cubes. Partial success is rewarded based on the number of correctly sorted cubes.
 
 - Perception: Detect cubes and destination pads from camera observations.
+- Optional VLM perception: Read destination sign letters/backgrounds from camera observations when color blobs alone are ambiguous.
 - Localization: Estimate target world coordinates using perception, depth, camera geometry, and `robot_status`.
 - Navigation: Use coordinate-based `go_to` with visually estimated target coordinates.
 - LLM decision-making: Select targets, choose high-level actions, decide recovery steps, and track progress using memory.
@@ -107,6 +122,7 @@ Completion target: correctly sort all six cubes. Partial success is rewarded bas
 Completion target: correctly sort all six cubes. Partial success is rewarded based on the number of correctly sorted cubes.
 
 - Perception: Detect and track cubes and destination pads from camera observations.
+- Optional VLM perception: Read destination sign letters/backgrounds from camera observations when color blobs alone are ambiguous.
 - Navigation: Use closed-loop camera observations, `set_head`, and `set_velocity` to navigate to both cubes and pads.
 - Coordinate navigation: Do not invoke `go_to`.
 - LLM decision-making: Choose high-level search/navigation/recovery actions, maintain memory, and determine when to retry, skip, or stop.

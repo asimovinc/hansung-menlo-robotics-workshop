@@ -2,7 +2,17 @@
 
 프로젝트 에이전트를 만들 때 참고하는 문서입니다. 제출 코드에서 사용할 수 있는 SDK 호출과 헬퍼 함수를 정리합니다.
 
-제출 에이전트는 카메라 관찰값, 고정 자연어 과제, robot_status, structured LLM decision을 바탕으로 목표를 찾아야 합니다. scene_state, 정답 좌표, 정확한 entity ID, global asset map은 사용할 수 없습니다.
+제출 에이전트는 카메라 관찰값, 고정 자연어 과제, 고정 색상/표지판 매칭 규칙, robot_status, structured LLM decision을 바탕으로 목표를 찾아야 합니다. scene_state, 정답 좌표, 정확한 entity ID, global asset map은 사용할 수 없습니다.
+
+고정 목적지 표지판 정보는 사용할 수 있습니다.
+
+| 표지판 | 의미 |
+| --- | --- |
+| A | 컨베이어/큐브 공급 구역이며 목적지 패드가 아닙니다 |
+| 빨간 배경의 B | 빨간 큐브 목적지 |
+| 초록 배경의 C | 초록 큐브 목적지 |
+| 파란 배경의 D | 파란 큐브 목적지 |
+| 노란 배경의 E | 노란 큐브 목적지 |
 
 ## 레벨별 허용 도구
 
@@ -18,7 +28,7 @@
 | ctx.state("robot_status") | 허용 | 허용 | 로봇 위치, 상태, 목 상태 |
 | ctx.state("scene_state") | 불가 | 불가 | 디버깅/워크숍 전용 |
 | Text LLM decision call | 필수 | 필수 | High-level agent decision |
-| VLM call | 선택 | 선택 | Extra scene understanding |
+| VLM call | 선택 | 선택 | Extra scene understanding, 표지판 글자 읽기 |
 
 ## SDK 스킬
 
@@ -199,9 +209,25 @@ Vision navigation 헬퍼는 baseline입니다. 장애물이 경로를 막거나 
     )
 
 - call_llm(messages, api_key=...): text LLM을 호출합니다.
-- ask_vlm(jpeg_bytes, prompt, api_key=...): 카메라 프레임에 대해 VLM에 질문합니다.
+- ask_vlm(jpeg_bytes, prompt, api_key=...): 카메라 프레임에 대해 VLM에 질문합니다. 카메라 관찰에서 고정 목적지 표지판을 읽거나 확인하는 데 사용할 수 있습니다.
 - parse_tool_call(text): LLM 응답에서 JSON tool call을 파싱합니다.
 - build_system_prompt(tools): tool-use system prompt를 만듭니다.
+
+표지판 읽기 VLM prompt 예시:
+
+    jpeg = await ctx.get_vision("pov")
+    reply = ask_vlm(
+        jpeg,
+        (
+            "Read the floating warehouse signs visible in this robot camera frame. "
+            "A is the conveyor/cube source area and is not a destination. "
+            "Destination signs are B red, C green, D blue, E yellow. "
+            "Return JSON with visible sign letters, colors, rough positions, and confidence."
+        ),
+        api_key=tokamak_api_key,
+    )
+
+VLM 출력은 text LLM decision loop와 validation check에 사용할 관찰 근거로 다루세요. VLM으로 required structured decision object를 대체하거나, scene_state, 정확한 entity ID, 정답 좌표와 결합해 사용하면 안 됩니다.
 
 기본 WorkshopAgent는 학습 예제이며 제출용으로 그대로 사용할 수 없습니다. 기본 도구가 scene_state와 정확한 entity ID를 사용하기 때문입니다. 구조만 참고하여 프로젝트에서 허용된 도구로 수정해 사용하세요.
 

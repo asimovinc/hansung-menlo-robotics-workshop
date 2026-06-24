@@ -18,6 +18,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
+from menlo_runner.llm import ask_vlm
 from menlo_runner.perception import detect_color_blobs
 
 
@@ -27,6 +28,19 @@ from menlo_runner.perception import detect_color_blobs
 # 과제 문장은 고정입니다. 핵심은 cube color order와 시작 위치가 달라도
 # 소스코드 수정 없이 동작하는 하나의 agent를 만드는 것입니다.
 TASK = "Find and sort the six cubes in the warehouse into their matching destination pads."
+
+# 고정 표지판 정보는 사용할 수 있습니다. 이를 정확한 좌표나 entity ID로
+# 바꾸지 말고, 관찰값을 해석하는 규칙으로만 사용하세요.
+DESTINATION_SIGN_RULES = {
+    "red": "B",
+    "green": "C",
+    "blue": "D",
+    "yellow": "E",
+}
+SIGNAGE_NOTE = (
+    "A is the conveyor/cube source area, not a destination. "
+    "Destination signs are B red, C green, D blue, E yellow."
+)
 
 # LLM은 아래 high-level action 중 하나를 선택해야 합니다. raw velocity command는
 # 출력하지 않고, deterministic code가 decision을 robot action으로 변환합니다.
@@ -79,6 +93,7 @@ class Observation:
     robot_status: Any
     detections: list[Any]
     note: str = ""
+    vlm_summary: str = ""
 
 
 @dataclass(frozen=True)
@@ -166,6 +181,8 @@ def build_decision_context(
         "failed_attempts": memory.failed_attempts,
         "last_result": last_result,
         "note": observation.note,
+        "signage_note": SIGNAGE_NOTE,
+        "vlm_summary": observation.vlm_summary,
     }
 
 
@@ -183,6 +200,25 @@ async def get_robot_status(ctx: Any) -> Any:
 async def get_camera_frame(ctx: Any) -> bytes:
     """POV camera frame을 캡처합니다."""
     return await ctx.get_vision("pov")
+
+
+def build_signage_vlm_prompt(held_color: str | None = None) -> str:
+    """고정 창고 표지판을 읽기 위한 strategy-neutral VLM prompt를 만듭니다."""
+    target = ""
+    if held_color in DESTINATION_SIGN_RULES:
+        target = f" The robot is holding a {held_color} cube, so the target destination sign is {DESTINATION_SIGN_RULES[held_color]}."
+    return (
+        "Read the floating warehouse signs visible in this robot camera frame. "
+        f"{SIGNAGE_NOTE} "
+        "Return JSON with visible sign letters, colors, rough left/center/right positions, and confidence."
+        + target
+    )
+
+
+async def ask_vlm_about_frame(ctx: Any, prompt: str, *, api_key: str) -> str:
+    """현재 POV frame에 대해 프로젝트 허용 VLM helper로 질문합니다."""
+    jpeg = await get_camera_frame(ctx)
+    return ask_vlm(jpeg, prompt, api_key=api_key)
 
 
 async def perceive(ctx: Any) -> list[Any]:
@@ -320,6 +356,7 @@ async def observe_world(ctx: Any, memory: AgentMemory) -> Observation:
     TODO:
     - 언제 set_head scan을 할지, 언제 single frame만 사용할지 결정하세요.
     - 필요하면 VLM output, confidence, target type, search note를 추가하세요.
+      표지판 읽기에는 build_signage_vlm_prompt()와 ask_vlm_about_frame()을 사용할 수 있습니다.
     - 제출 코드에서는 scene_state와 정확한 entity ID를 사용하지 마세요.
     """
     robot_status = await get_robot_status(ctx)
