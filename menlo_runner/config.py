@@ -13,7 +13,7 @@ from dataclasses import dataclass
 class MenloConfig:
     menlo_api_key: str
     tokamak_api_key: str
-    rcs_url: str = "https://platform-auth.menlo.ai/rcs"
+    rcs_url: str = "https://api.menlo.ai/rcs"
     viewer_base_url: str = "https://sim.menlo.ai"
 
 
@@ -32,7 +32,7 @@ def load_config(require_tokamak: bool = False) -> MenloConfig:
     config = MenloConfig(
         menlo_api_key=os.environ.get("MENLO_API_KEY", ""),
         tokamak_api_key=os.environ.get("TOKAMAK_API_KEY", ""),
-        rcs_url=os.environ.get("MENLO_RCS_URL", "https://platform-auth.menlo.ai/rcs"),
+        rcs_url=os.environ.get("MENLO_RCS_URL", "https://api.menlo.ai/rcs"),
         viewer_base_url=os.environ.get("MENLO_VIEWER_BASE_URL", "https://sim.menlo.ai"),
     )
 

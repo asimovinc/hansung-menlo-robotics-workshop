@@ -12,9 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from menlo_robot_sdk import AsyncClient, connect
+from menlo_robot_sdk.errors import MenloAPIError
 from menlo_robot_sdk.experimental import generate_room_key
 
 from menlo_runner.config import MenloConfig
+
+
+class MenloAuthError(RuntimeError):
+    """Raised when the robot API rejects the configured Menlo credential."""
 
 
 @dataclass
@@ -35,10 +40,22 @@ class RobotContext:
         join_livekit: bool = True,
     ) -> "RobotContext":
         client = AsyncClient(rcs_url=config.rcs_url, api_key=config.menlo_api_key)
-        created = await client.robots.create(
-            name=f"{name_prefix}-{int(time.time())}",
-            model=model,
-        )
+        try:
+            created = await client.robots.create(
+                name=f"{name_prefix}-{int(time.time())}",
+                model=model,
+            )
+        except MenloAPIError as exc:
+            await client.aclose()
+            if exc.status_code == 401:
+                raise MenloAuthError(
+                    "Menlo authentication failed while creating a robot.\n"
+                    f"  MENLO_RCS_URL: {config.rcs_url}\n"
+                    "  MENLO_API_KEY: set, but rejected by the server.\n\n"
+                    "Generate a fresh Menlo API key for the current api.menlo.ai "
+                    "environment, update MENLO_API_KEY in .env, and retry."
+                ) from exc
+            raise
         robot_id = created.robot.id
         session = await connect(
             client,

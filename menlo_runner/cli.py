@@ -12,7 +12,7 @@ from typing import Any, Awaitable, Callable
 
 from menlo_runner.basics import print_position, screenshot
 from menlo_runner.config import load_config
-from menlo_runner.context import open_robot_context
+from menlo_runner.context import MenloAuthError, open_robot_context
 from menlo_runner.scene import get_scene_text
 
 
@@ -172,16 +172,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    if args.command == "session":
-        asyncio.run(_interactive_session())
-        return
+    try:
+        if args.command == "session":
+            asyncio.run(_interactive_session())
+            return
 
-    if args.command == "custom":
-        asyncio.run(_run_program(args.module, require_tokamak=args.tokamak))
-        return
+        if args.command == "custom":
+            asyncio.run(_run_program(args.module, require_tokamak=args.tokamak))
+            return
 
-    module_name, require_tokamak = PROGRAMS[args.command]
-    asyncio.run(_run_program(module_name, require_tokamak=require_tokamak))
+        module_name, require_tokamak = PROGRAMS[args.command]
+        asyncio.run(_run_program(module_name, require_tokamak=require_tokamak))
+    except MenloAuthError as exc:
+        print(f"ERROR: {exc}")
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
