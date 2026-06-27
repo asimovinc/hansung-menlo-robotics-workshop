@@ -11,8 +11,9 @@ architecture needs it, but most teams should leave them mostly unchanged.
 Sections marked STUDENT TODO are where your project design belongs. These are the
 parts your team should edit, improve, test, and explain in the presentation.
 
-Level 1 rule: scene_state and exact entity IDs are not allowed. Coordinate go_to
-is allowed only with coordinates estimated or recorded by the student system.
+Level 1 rule: scene_state and exact entity IDs are not allowed. This starter
+guides you toward camera-driven approach with set_velocity. Use coordinate go_to
+only with coordinates recorded by your system after successful pick/place.
 """
 
 import asyncio
@@ -75,7 +76,7 @@ class AgentMemory:
     """State your agent carries across observe-decide-act cycles.
 
     Start simple, then add fields your strategy needs: target history, failed
-    locations, scan results, confidence scores, held-object estimates, etc.
+    locations, scan results, confidence scores, held-object status, etc.
     """
 
     delivered_count: int = 0
@@ -83,6 +84,8 @@ class AgentMemory:
     active_color: str | None = None
     stage: str = "need_cube"
     search_turns: int = 0
+    learned_cube_source_xy: tuple[float, float] | None = None
+    learned_pad_xy: dict[str, tuple[float, float]] = field(default_factory=dict)
     failed_attempts: dict[str, int] = field(default_factory=dict)
     completed_colors: list[str] = field(default_factory=list)
     skipped_colors: list[str] = field(default_factory=list)
@@ -104,8 +107,8 @@ class ScannedDetection:
     """Color detection annotated with the head pose used for that camera frame.
 
     This is intentionally strategy-neutral. Level 1 teams can use the full
-    bearing for coordinate estimates; Level 2 teams can use it for closed-loop
-    visual centering. Teams may add confidence, target type, or depth fields.
+    bearing for closed-loop visual centering. Teams may add confidence, target
+    type, or depth fields.
     """
 
     color: str
@@ -405,27 +408,24 @@ def update_memory(
     })
 
 # ---------------------------------------------------------------------------
-# LEVEL 1 STUDENT TODO: coordinate-guided action implementation
+# LEVEL 1 STUDENT TODO: visual approach and coordinate-memory implementation
 # ---------------------------------------------------------------------------
-# Level 1 may use go_to, but only with coordinates estimated from observations.
+# Level 1 may use go_to, but this starter guides you to use coordinates recorded
+# after success, not a fixed map or immediate coordinate shortcut.
 # Do not use entity IDs, scene_state, or ground-truth object coordinates.
 
 
-def estimate_target_xy_from_observation(observation: Observation, target_color: str | None) -> tuple[float, float] | None:
-    """Estimate a target world coordinate from camera observations.
-
-    TODO:
-    - Choose which detection corresponds to the cube or pad you want.
-    - Use detection.full_bearing_deg when available so head yaw is included.
-    - Estimate distance using depth, calibration, blob size, or camera geometry.
-    - Combine robot pose, bearing, and distance into world x/y.
-    - Return None when confidence is too low.
-    """
+def recorded_xy_for_decision(memory: AgentMemory, decision: AgentDecision) -> tuple[float, float] | None:
+    """Return a coordinate recorded after earlier success, if one exists."""
+    if decision.next_action == "navigate_to_cube":
+        return memory.learned_cube_source_xy
+    if decision.next_action == "navigate_to_pad" and decision.target_color:
+        return memory.learned_pad_xy.get(decision.target_color)
     return None
 
 
 async def go_to_xy(ctx: Any, x: float, y: float) -> Any:
-    """Coordinate-based go_to. Use only with student-estimated x/y."""
+    """Coordinate-based go_to. Use only with coordinates recorded after success."""
     return await ctx.invoke(
         "go_to",
         {
@@ -438,6 +438,33 @@ async def go_to_xy(ctx: Any, x: float, y: float) -> Any:
     )
 
 
+def best_detection(detections: list[Any], target_color: str | None = None) -> Any | None:
+    """Choose the largest matching color blob from a scan."""
+    candidates = [
+        detection
+        for detection in detections
+        if target_color is None or detection.color == target_color
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda detection: detection.blob_area)
+
+
+async def visual_approach_until_close(ctx: Any, target_color: str, *, arrival_area: int = 7000) -> bool:
+    """Starter closed-loop approach: observe, move briefly, observe again."""
+    for _ in range(10):
+        detections = await scan_head(ctx, yaws=(0.0,), pitch=0.1)
+        detection = best_detection(detections, target_color)
+        if detection is None:
+            await move_velocity(ctx, vx=0.0, wz=0.25, duration_s=0.6)
+            continue
+        if detection.blob_area >= arrival_area:
+            return True
+        wz = -0.2 if detection.angle_deg > 8 else 0.2 if detection.angle_deg < -8 else 0.0
+        await move_velocity(ctx, vx=0.3, wz=wz, duration_s=0.7)
+    return False
+
+
 async def execute_decision(
     ctx: Any,
     decision: AgentDecision,
@@ -448,8 +475,10 @@ async def execute_decision(
 
     TODO:
     - For search actions, scan or reposition safely.
-    - For navigation actions, estimate x/y from vision and call go_to_xy.
+    - For navigation actions, approach visually with set_velocity.
+    - Use go_to_xy only for coordinates recorded after earlier pick/place success.
     - For pick/place actions, verify the robot is close to the intended target.
+    - After verified pick/place success, record robot_status pose into memory.
     - For recover/skip/stop, implement your team's policy.
     """
     if decision.next_action in {"search_cube", "search_pad"}:
@@ -457,11 +486,20 @@ async def execute_decision(
         return {"action": decision.next_action, "status": "scanned"}
 
     if decision.next_action in {"navigate_to_cube", "navigate_to_pad"}:
-        target_xy = estimate_target_xy_from_observation(observation, decision.target_color)
-        if target_xy is None:
-            return {"action": decision.next_action, "status": "failed", "reason": "no coordinate estimate"}
-        result = await go_to_xy(ctx, *target_xy)
-        return {"action": decision.next_action, "target_xy": target_xy, "result": result_summary(result)}
+        recorded_xy = recorded_xy_for_decision(memory, decision)
+        go_to_result = None
+        if recorded_xy is not None:
+            result = await go_to_xy(ctx, *recorded_xy)
+            go_to_result = result_summary(result)
+        if decision.target_color is None:
+            return {"action": decision.next_action, "status": "failed", "reason": "missing target color"}
+        approached = await visual_approach_until_close(ctx, decision.target_color)
+        return {
+            "action": decision.next_action,
+            "status": "visually_approached" if approached else "failed",
+            "recorded_go_to": go_to_result,
+            "approached": approached,
+        }
 
     if decision.next_action == "pick_cube":
         result = await pick_nearest_cube(ctx)

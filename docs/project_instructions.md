@@ -80,10 +80,10 @@ Students must detect cubes and destination pads using camera observations. They 
 - Detect targets visually
 - Navigate toward targets
 - Use manual robot movement with `set_velocity` to approach until pick/place succeeds
-- Use coordinate-based `go_to` only after suitable coordinates have been estimated or recorded by the student system
+- Use coordinate-based `go_to` only after coordinates have been recorded by the student system following verified pick/place success
 - Optionally use memory to improve future navigation
 
-Main challenge: combine perception, memory, coordinate estimation, navigation, and LLM reasoning to improve performance over time.
+Main challenge: combine perception, memory, visual approach, recorded-coordinate navigation, and LLM reasoning to improve performance over time.
 
 The current Level 1 starter is `menlo_runner/programs/project/en/level_1_starter.py`.
 
@@ -130,7 +130,7 @@ Additional information by level:
 | `scene_state` | Allowed | Not allowed | Not allowed |
 | Exact entity IDs from the scene | Allowed | Not allowed | Not allowed |
 | `go_to` with entity target | Allowed | Not allowed | Not allowed |
-| `go_to` with student-estimated world pose | Allowed | Allowed | Not allowed |
+| `go_to` with student-recorded world pose after verified success | Allowed | Allowed | Not allowed |
 | `set_velocity` | Allowed | Allowed | Allowed |
 | `set_head` | Allowed | Allowed | Allowed |
 | Camera observations | Allowed | Required | Required |
@@ -270,7 +270,7 @@ result = await ctx.invoke(
 )
 ```
 
-Level 1 coordinate navigation:
+Level 1 recorded-coordinate navigation:
 
 ```python
 result = await ctx.invoke(
@@ -316,7 +316,7 @@ Project-relevant helper functions:
 Important restrictions:
 
 - Level 0 may use `scene_state`, entity IDs, and entity-target `go_to`.
-- Level 1 may use coordinate `go_to` only with coordinates estimated or recorded by the student system.
+- Level 1 may use coordinate `go_to` only with coordinates recorded by the student system after verified pick/place success.
 - Level 2 must not call `go_to`.
 - `my_go_to_global` uses `scene_state` and exact entity IDs, so it is Level 0 only.
 - The default `WorkshopAgent` is a learning example. It may be adapted for Level 0, but its default tools are not valid for Levels 1 or 2 because they use `scene_state` and exact entity IDs.

@@ -80,10 +80,10 @@ result = await ctx.invoke(
 - 시각적으로 target detection 수행
 - target 방향으로 navigation 수행
 - `set_velocity`로 수동 이동하며 pick/place가 성공할 때까지 접근
-- 학생 시스템이 직접 추정하거나 기록한 좌표에 한해 coordinate-based `go_to` 사용
+- pick/place 성공을 검증한 뒤 학생 시스템이 기록한 좌표에 한해 coordinate-based `go_to` 사용
 - 필요하다면 memory를 사용해 이후 navigation 개선
 
-주요 과제: perception, memory, coordinate estimation, navigation, LLM reasoning을 결합해 성능을 점진적으로 개선하는 것입니다.
+주요 과제: perception, memory, visual approach, 기록된 좌표 기반 navigation, LLM reasoning을 결합해 성능을 점진적으로 개선하는 것입니다.
 
 현재 Level 1 starter는 `menlo_runner/programs/project/en/level_1_starter.py`와 한국어 버전 `menlo_runner/programs/project/ko/level_1_starter_ko.py`입니다.
 
@@ -130,7 +130,7 @@ observe -> move briefly -> observe again -> correct or stop
 | `scene_state` | 허용 | 불가 | 불가 |
 | scene에서 얻은 정확한 entity ID | 허용 | 불가 | 불가 |
 | entity target 기반 `go_to` | 허용 | 불가 | 불가 |
-| 학생이 추정한 world pose 기반 `go_to` | 허용 | 허용 | 불가 |
+| 검증된 성공 후 학생이 기록한 world pose 기반 `go_to` | 허용 | 허용 | 불가 |
 | `set_velocity` | 허용 | 허용 | 허용 |
 | `set_head` | 허용 | 허용 | 허용 |
 | 카메라 관찰값 | 허용 | 필수 | 필수 |
@@ -264,7 +264,7 @@ result = await ctx.invoke(
 )
 ```
 
-Level 1 coordinate navigation:
+Level 1 recorded-coordinate navigation:
 
 ```python
 result = await ctx.invoke(
@@ -291,7 +291,7 @@ result = await ctx.invoke(
 중요 제한:
 
 - Level 0은 `scene_state`, entity ID, entity-target `go_to`를 사용할 수 있습니다.
-- Level 1은 학생 시스템이 추정하거나 기록한 좌표에 대해서만 coordinate `go_to`를 사용할 수 있습니다.
+- Level 1은 pick/place 성공을 검증한 뒤 학생 시스템이 기록한 좌표에 대해서만 coordinate `go_to`를 사용할 수 있습니다.
 - Level 2는 `go_to`를 호출하면 안 됩니다.
 - `my_go_to_global`은 `scene_state`와 정확한 entity ID를 사용하므로 Level 0에서만 사용할 수 있습니다.
 - 기본 `WorkshopAgent`는 학습 예제입니다. Level 0에서는 수정해 사용할 수 있지만, 기본 tool들이 `scene_state`와 정확한 entity ID를 사용하므로 Level 1 또는 Level 2 제출용으로는 그대로 사용할 수 없습니다.
