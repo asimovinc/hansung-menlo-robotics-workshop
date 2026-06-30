@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import importlib
 from typing import Any, Awaitable, Callable
 
 from menlo_runner.basics import print_position, screenshot
+from menlo_runner.completion import CompletionConfig, level_from_program_name
 from menlo_runner.config import load_config
 from menlo_runner.context import MenloAuthError, open_robot_context
 from menlo_runner.scene import get_scene_text
@@ -66,6 +68,53 @@ async def _run_program_in_existing_context(ctx: Any, module_name: str) -> None:
         return
     program = _load_program(module_name)
     await program(ctx)
+
+
+async def _run_completion(
+    program_name: str,
+    *,
+    max_delivered_cubes: int | None,
+    max_elapsed_s: float | None,
+    max_cycles: int,
+) -> None:
+    if program_name not in PROGRAMS:
+        raise RuntimeError(f"Unknown program '{program_name}'. Try one of: {', '.join(PROGRAMS)}")
+
+    completion = CompletionConfig(
+        level=level_from_program_name(program_name),
+        max_delivered_cubes=max_delivered_cubes,
+        max_elapsed_s=max_elapsed_s,
+    )
+    module_name, require_tokamak = PROGRAMS[program_name]
+    config = load_config(require_tokamak=require_tokamak)
+    ctx = await open_robot_context(config, name_prefix=f"complete-{program_name}")
+    try:
+        module = importlib.import_module(module_name)
+        run_agent = getattr(module, "run_agent", None)
+        if run_agent is None:
+            raise RuntimeError(f"{program_name} does not expose run_agent(ctx, ...).")
+
+        signature = inspect.signature(run_agent)
+        if "completion" not in signature.parameters:
+            raise RuntimeError(
+                f"{program_name} does not support completion runs yet. "
+                "Add a completion parameter to its run_agent function."
+            )
+
+        kwargs: dict[str, Any] = {"completion": completion}
+        if "max_cycles" in signature.parameters:
+            kwargs["max_cycles"] = max_cycles
+        if "task" in signature.parameters:
+            resolve_task = getattr(module, "resolve_task", None)
+            task = resolve_task(ctx) if resolve_task is not None else getattr(module, "TASK", "")
+            kwargs["task"] = task
+            if task:
+                print(task)
+        print(f"Running completion wrapper for {program_name}")
+        await run_agent(ctx, **kwargs)
+    finally:
+        await ctx.close()
+        print("Cleaned up robot and closed the client.")
 
 
 def _print_session_help() -> None:
@@ -163,6 +212,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Require TOKAMAK_API_KEY for the custom program.",
     )
 
+    complete = subparsers.add_parser(
+        "complete",
+        help="Run a project program with scoring and the simulation time cap.",
+    )
+    complete.add_argument("program", choices=sorted(PROGRAMS), help="Built-in project program to run.")
+    complete.add_argument(
+        "--cubes",
+        type=int,
+        default=None,
+        help="Optional stop target for delivered cubes. Omit for no cube cap.",
+    )
+    complete.add_argument(
+        "--seconds",
+        type=float,
+        default=600.0,
+        help="Stop after this many seconds from the first agent cycle start (default: 600).",
+    )
+    complete.add_argument(
+        "--max-cycles",
+        type=int,
+        default=10_000,
+        help="Safety cap for agent cycles. Default: 10000.",
+    )
+
     subparsers.add_parser(
         "session",
         help="Keep one robot/viewer alive and run multiple commands against it.",
@@ -179,6 +252,17 @@ def main() -> None:
 
         if args.command == "custom":
             asyncio.run(_run_program(args.module, require_tokamak=args.tokamak))
+            return
+
+        if args.command == "complete":
+            asyncio.run(
+                _run_completion(
+                    args.program,
+                    max_delivered_cubes=args.cubes,
+                    max_elapsed_s=args.seconds,
+                    max_cycles=args.max_cycles,
+                )
+            )
             return
 
         module_name, require_tokamak = PROGRAMS[args.command]
