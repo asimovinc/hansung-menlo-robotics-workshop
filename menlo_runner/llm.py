@@ -15,25 +15,30 @@ from typing import Any
 TOKAMAK_URL = "https://api.tokamak.sh/v1/chat/completions"
 DEFAULT_LLM_MODEL = "minimaxai/minimax-m3"
 DEFAULT_VLM_MODEL = "qwen/qwen3.6-35b-a3b"
-ALLOWED_LLM_MODELS = (
+ALLOWED_AI_MODELS = (
     "minimaxai/minimax-m3",
-    "minimaxai/minimax-m2.7",
     "qwen/qwen3.6-35b-a3b",
 )
+ALLOWED_LLM_MODELS = ALLOWED_AI_MODELS
+ALLOWED_VLM_MODELS = ALLOWED_AI_MODELS
 
 
 def get_llm_model(default: str = DEFAULT_LLM_MODEL) -> str:
     """Return the configured text model for scripts and notebooks."""
     model = os.environ.get("MENLO_LLM_MODEL", default).strip()
-    if model not in ALLOWED_LLM_MODELS:
-        allowed = ", ".join(ALLOWED_LLM_MODELS)
+    if model not in ALLOWED_AI_MODELS:
+        allowed = ", ".join(ALLOWED_AI_MODELS)
         raise ValueError(f"MENLO_LLM_MODEL must be one of: {allowed}")
     return model
 
 
 def get_vlm_model(default: str = DEFAULT_VLM_MODEL) -> str:
     """Return the configured vision model for scripts and notebooks."""
-    return os.environ.get("MENLO_VLM_MODEL", default).strip()
+    model = os.environ.get("MENLO_VLM_MODEL", default).strip()
+    if model not in ALLOWED_AI_MODELS:
+        allowed = ", ".join(ALLOWED_AI_MODELS)
+        raise ValueError(f"MENLO_VLM_MODEL must be one of: {allowed}")
+    return model
 
 
 def call_llm(

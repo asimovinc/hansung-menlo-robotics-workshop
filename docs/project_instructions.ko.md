@@ -126,14 +126,15 @@ VLM call에 필요합니다.
 import os
 
 os.environ["MENLO_LLM_MODEL"] = "minimaxai/minimax-m3"
-# 승인된 다른 선택지:
-# os.environ["MENLO_LLM_MODEL"] = "minimaxai/minimax-m2.7"
+os.environ["MENLO_VLM_MODEL"] = "qwen/qwen3.6-35b-a3b"
+# 두 변수에 사용할 수 있는 승인된 다른 선택지:
 # os.environ["MENLO_LLM_MODEL"] = "qwen/qwen3.6-35b-a3b"
+# os.environ["MENLO_VLM_MODEL"] = "minimaxai/minimax-m3"
 ```
 
 Notebook 사용자는 setup cell 실행 후 agent를 시작하기 전에 이 값을 설정하세요. Local IDE
-사용자는 `.env`에 `MENLO_LLM_MODEL`을 설정하거나 `call_llm(...)`에 `model=...`을 직접
-넘길 수 있습니다.
+사용자는 `.env`에 `MENLO_LLM_MODEL`과 `MENLO_VLM_MODEL`을 설정하거나 `call_llm(...)` /
+`ask_vlm(...)`에 `model=...`을 직접 넘길 수 있습니다.
 
 Level별 추가 허용 정보:
 

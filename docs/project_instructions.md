@@ -129,12 +129,13 @@ By default, `menlo_runner.llm.call_llm(...)` uses `minimaxai/minimax-m3`. Teams 
 import os
 
 os.environ["MENLO_LLM_MODEL"] = "minimaxai/minimax-m3"
-# Approved alternatives:
-# os.environ["MENLO_LLM_MODEL"] = "minimaxai/minimax-m2.7"
+os.environ["MENLO_VLM_MODEL"] = "qwen/qwen3.6-35b-a3b"
+# Approved alternatives for either variable:
 # os.environ["MENLO_LLM_MODEL"] = "qwen/qwen3.6-35b-a3b"
+# os.environ["MENLO_VLM_MODEL"] = "minimaxai/minimax-m3"
 ```
 
-For notebook users, put this in a cell after setup and before the agent starts. Local IDE users may set `MENLO_LLM_MODEL` in `.env` or pass `model=...` directly to `call_llm(...)`.
+For notebook users, put this in a cell after setup and before the agent starts. Local IDE users may set `MENLO_LLM_MODEL` and `MENLO_VLM_MODEL` in `.env` or pass `model=...` directly to `call_llm(...)` / `ask_vlm(...)`.
 
 Additional information by level:
 

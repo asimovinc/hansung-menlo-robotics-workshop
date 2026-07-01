@@ -43,9 +43,10 @@ Optional LLM model override:
 import os
 
 os.environ["MENLO_LLM_MODEL"] = "minimaxai/minimax-m3"
-# Other approved choices:
-# os.environ["MENLO_LLM_MODEL"] = "minimaxai/minimax-m2.7"
+os.environ["MENLO_VLM_MODEL"] = "qwen/qwen3.6-35b-a3b"
+# Other approved choices for either variable:
 # os.environ["MENLO_LLM_MODEL"] = "qwen/qwen3.6-35b-a3b"
+# os.environ["MENLO_VLM_MODEL"] = "minimaxai/minimax-m3"
 ```
 
 Put this in a notebook cell after setup and before the project agent runs. Local
@@ -101,6 +102,7 @@ Copy `.env.example` to `.env` if present, or create `.env` with:
 MENLO_API_KEY=...
 TOKAMAK_API_KEY=...
 MENLO_LLM_MODEL=minimaxai/minimax-m3
+MENLO_VLM_MODEL=qwen/qwen3.6-35b-a3b
 ```
 
 `MENLO_API_KEY` comes from `platform.menlo.ai` -> Settings -> API Keys.

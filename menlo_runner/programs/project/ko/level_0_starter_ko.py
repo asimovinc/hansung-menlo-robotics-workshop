@@ -29,10 +29,10 @@ TASK = "Find and sort cubes from the source area into their matching destination
 # 이 값을 바꾸거나 실행 전에 환경 변수/.env의 MENLO_LLM_MODEL을 설정하세요.
 APPROVED_LLM_MODELS = (
     "minimaxai/minimax-m3",
-    "minimaxai/minimax-m2.7",
     "qwen/qwen3.6-35b-a3b",
 )
 LLM_MODEL = os.environ.setdefault("MENLO_LLM_MODEL", "minimaxai/minimax-m3")
+VLM_MODEL = os.environ.setdefault("MENLO_VLM_MODEL", "qwen/qwen3.6-35b-a3b")
 
 DESTINATION_SIGN_RULES = {
     "red": "B",

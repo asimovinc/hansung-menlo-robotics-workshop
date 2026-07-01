@@ -31,10 +31,10 @@ TASK = "Find and sort cubes from the source area into their matching destination
 # Edit this value or set MENLO_LLM_MODEL in your environment/.env before running.
 APPROVED_LLM_MODELS = (
     "minimaxai/minimax-m3",
-    "minimaxai/minimax-m2.7",
     "qwen/qwen3.6-35b-a3b",
 )
 LLM_MODEL = os.environ.setdefault("MENLO_LLM_MODEL", "minimaxai/minimax-m3")
+VLM_MODEL = os.environ.setdefault("MENLO_VLM_MODEL", "qwen/qwen3.6-35b-a3b")
 
 DESTINATION_SIGN_RULES = {
     "red": "B",
