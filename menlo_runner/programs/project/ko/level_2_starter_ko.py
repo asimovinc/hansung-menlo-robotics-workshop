@@ -8,6 +8,17 @@
 필요하면 읽고 수정할 수 있지만, 대부분의 팀은 지원 코드를 크게 바꾸지 않는 편이 좋습니다.
 학생 TODO 섹션은 팀이 수정하고, 개선하고, test하고, presentation에서 설명해야 하는 부분입니다.
 
+실행 설정:
+- 기본 run(ctx)는 round1, round2, round3 또는 manual 시간을 묻습니다.
+  라운드 제한 시간은 각각 5분, 10분, 15분이며, 모든 라운드는 최대 12개
+  cube delivery에서 자동으로 멈춥니다.
+- 일반 연습에서는 Enter를 눌러 round2를 사용하고 evaluation setup option은
+  비워 두세요. 그러면 현재 scene과 robot pose를 그대로 사용합니다.
+- 공통 평가 조건으로 연습할 때는 지정된 round와 1~50 사이 option 번호를
+  입력하세요. Starter가 cube_color_order_key를 출력하고, viewer에서 해당
+  key를 적용/reset한 뒤 결정된 시작 위치로 robot을 이동합니다.
+- manual을 입력하면 원하는 제한 시간을 초 단위로 직접 입력할 수 있습니다.
+
 Level 2 규칙: scene_state, 정확한 entity ID, coordinate go_to는 사용할 수 없습니다.
 Camera observation, set_head, set_velocity, memory로 navigation을 구현하세요.
 """
@@ -19,9 +30,10 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from menlo_runner.completion import CompletionConfig, CompletionTracker
+from menlo_runner.completion import CompletionConfig, CompletionTimeout, CompletionTracker
 from menlo_runner.llm import ask_vlm
-from menlo_runner.perception import detect_color_blobs
+from menlo_runner.perception import compress_jpeg, detect_color_blobs
+from menlo_runner.programs.evaluation_setup import prepare_evaluation_round
 from menlo_runner.scene import delivered_cube_ids, held_cube_info
 
 
@@ -211,9 +223,18 @@ async def get_robot_status(ctx: Any) -> Any:
     return await ctx.state("robot_status")
 
 
-async def get_camera_frame(ctx: Any) -> bytes:
-    """POV camera frame을 가져옵니다."""
-    return await ctx.get_vision("pov")
+async def get_camera_frame(
+    ctx: Any,
+    *,
+    compressed: bool = False,
+    max_width: int = 800,
+    quality: int = 70,
+) -> bytes:
+    """POV camera frame을 가져오며, VLM용으로 resize/re-encode할 수 있습니다."""
+    jpeg = await ctx.get_vision("pov")
+    if compressed:
+        return compress_jpeg(jpeg, max_width=max_width, quality=quality)
+    return jpeg
 
 
 async def get_delivered_count(ctx: Any) -> int:
@@ -240,9 +261,22 @@ def build_signage_vlm_prompt(held_color: str | None = None) -> str:
     )
 
 
-async def ask_vlm_about_frame(ctx: Any, prompt: str, *, api_key: str) -> str:
+async def ask_vlm_about_frame(
+    ctx: Any,
+    prompt: str,
+    *,
+    api_key: str,
+    compressed: bool = True,
+    max_width: int = 800,
+    quality: int = 70,
+) -> str:
     """Project에서 허용되는 VLM helper로 현재 POV frame에 대해 질문합니다."""
-    jpeg = await get_camera_frame(ctx)
+    jpeg = await get_camera_frame(
+        ctx,
+        compressed=compressed,
+        max_width=max_width,
+        quality=quality,
+    )
     return ask_vlm(jpeg, prompt, api_key=api_key)
 
 
@@ -347,6 +381,8 @@ async def decide_next_action(
     TODO:
     - decision_context로 명확한 prompt를 만드세요.
     - menlo_runner.llm.call_llm 또는 승인된 LLM helper를 호출하세요.
+      helper가 synchronous/blocking이면 await asyncio.to_thread(...)로 감싸세요.
+      그래야 strict round timer가 시간 초과 시 model 대기를 중단할 수 있습니다.
     - next_action, target_color, reason이 포함된 JSON을 요구하세요.
     - parse_agent_decision으로 validate하세요.
     - Validation이 실패하면 안전한 recovery decision을 반환하세요.
@@ -525,36 +561,56 @@ async def run_agent(
     last_result: dict[str, Any] | None = None
     tracker = CompletionTracker(completion) if completion is not None else None
 
+    async def run_step(awaitable: Any, label: str) -> Any:
+        if tracker is None:
+            return await awaitable
+        return await tracker.wait_for_remaining(awaitable, label)
+
     for cycle in range(1, max_cycles + 1):
         print(f"\n[Level 2] Cycle {cycle}")
-        if tracker is not None:
-            first_cycle = tracker.started_at is None
-            tracker.start_first_cycle()
-            if first_cycle:
-                tracker.print_start()
-            reason = await tracker.stop_reason_from_scene(ctx)
-            if reason is not None:
-                tracker.mark_ended(reason)
-                print(f"Completion target reached before cycle action: {reason}.")
+        try:
+            if tracker is not None:
+                first_cycle = tracker.started_at is None
+                tracker.start_first_cycle()
+                if first_cycle:
+                    tracker.print_start()
+                reason = await tracker.stop_reason_from_scene(ctx)
+                if reason is not None:
+                    tracker.mark_ended(reason)
+                    print(f"Completion target reached before cycle action: {reason}.")
+                    break
+
+            observation = await run_step(observe_world(ctx, memory), "observe_world")
+            decision = await run_step(
+                decide_next_action(TASK, observation, memory, last_result),
+                "LLM decision",
+            )
+            print("LLM decision:", decision)
+
+            if decision.next_action == "stop":
                 break
 
-        observation = await observe_world(ctx, memory)
-        decision = await decide_next_action(TASK, observation, memory, last_result)
-        print("LLM decision:", decision)
-
-        if decision.next_action == "stop":
+            action_result = await run_step(
+                execute_decision(ctx, decision, observation, memory),
+                "execute action",
+            )
+            verified = await run_step(
+                verify_outcome(ctx, decision, action_result),
+                "verify outcome",
+            )
+            update_memory(memory, observation, decision, verified)
+            last_result = verified
+            if tracker is not None:
+                reason = await tracker.stop_reason_from_scene(ctx)
+                if reason is not None:
+                    tracker.mark_ended(reason)
+                    print(f"Completion target reached after cycle action: {reason}.")
+                    break
+        except CompletionTimeout as exc:
+            if tracker is not None:
+                tracker.mark_ended(str(exc))
+            print(f"Completion timer expired: {exc}.")
             break
-
-        action_result = await execute_decision(ctx, decision, observation, memory)
-        verified = await verify_outcome(ctx, decision, action_result)
-        update_memory(memory, observation, decision, verified)
-        last_result = verified
-        if tracker is not None:
-            reason = await tracker.stop_reason_from_scene(ctx)
-            if reason is not None:
-                tracker.mark_ended(reason)
-                print(f"Completion target reached after cycle action: {reason}.")
-                break
 
     if tracker is not None:
         await tracker.print_summary_from_scene(ctx)
@@ -564,10 +620,11 @@ async def run_agent(
 async def run(ctx: Any) -> None:
     print(TASK)
     print("Level 2 autonomous-vision project starter 실행")
+    completion = await prepare_evaluation_round(ctx, level=2)
     memory = await run_agent(
         ctx,
         max_cycles=10_000,
-        completion=CompletionConfig(level=2, max_elapsed_s=600),
+        completion=completion,
     )
     print("\n실행 완료.")
     print(f"Delivered count: {memory.delivered_count}")

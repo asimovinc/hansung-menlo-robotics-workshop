@@ -7,16 +7,30 @@
 지원 코드 섹션은 반복해서 작성할 필요가 없는 작은 래퍼와 자료 구조를 제공합니다.
 학생 TODO 섹션은 팀의 프로젝트 설계를 직접 구현하는 부분입니다.
 
+실행 설정:
+- 기본 run(ctx)는 round1, round2, round3 또는 manual 시간을 묻습니다.
+  라운드 제한 시간은 각각 5분, 10분, 15분이며, 모든 라운드는 최대 12개
+  cube delivery에서 자동으로 멈춥니다.
+- 일반 연습에서는 Enter를 눌러 round2를 사용하고 evaluation setup option은
+  비워 두세요. 그러면 현재 scene과 robot pose를 그대로 사용합니다.
+- 공통 평가 조건으로 연습할 때는 지정된 round와 1~50 사이 option 번호를
+  입력하세요. Starter가 cube_color_order_key를 출력하고, viewer에서 해당
+  key를 적용/reset한 뒤 결정된 시작 위치로 robot을 이동합니다.
+- manual을 입력하면 원하는 제한 시간을 초 단위로 직접 입력할 수 있습니다.
+
 Level 0 규칙: scene_state, 정확한 entity ID, entity-target go_to를 사용할 수 있습니다.
 핵심 과제는 고정 script가 아니라 의미 있는 LLM 보조 상위 단계 결정 loop를 구현하는 것입니다.
 """
 
+import asyncio
 import json
 import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from menlo_runner.completion import CompletionConfig, CompletionTracker
+from menlo_runner.completion import CompletionConfig, CompletionTimeout, CompletionTracker
+from menlo_runner.perception import compress_jpeg
+from menlo_runner.programs.evaluation_setup import prepare_evaluation_round
 from menlo_runner.scene import COLOR_TO_PAD, delivered_cube_ids, held_cube_info, visible_cubes
 
 
@@ -170,6 +184,20 @@ async def get_robot_status(ctx: Any) -> Any:
     return await ctx.state("robot_status")
 
 
+async def get_camera_frame(
+    ctx: Any,
+    *,
+    compressed: bool = False,
+    max_width: int = 800,
+    quality: int = 70,
+) -> bytes:
+    """POV camera frame을 가져오며, VLM용으로 resize/re-encode할 수 있습니다."""
+    jpeg = await ctx.get_vision("pov")
+    if compressed:
+        return compress_jpeg(jpeg, max_width=max_width, quality=quality)
+    return jpeg
+
+
 async def observe_full_state(ctx: Any) -> Observation:
     """scene_state helper로 프로젝트 Level 0 관찰을 수집합니다."""
     robot_status = await get_robot_status(ctx)
@@ -246,6 +274,8 @@ async def decide_next_action(
     TODO:
     - build_decision_context(...)로 prompt를 만드세요.
     - menlo_runner.llm.call_llm 또는 승인된 LLM helper를 호출하세요.
+      helper가 synchronous/blocking이면 await asyncio.to_thread(...)로 감싸세요.
+      그래야 strict round timer가 시간 초과 시 model 대기를 중단할 수 있습니다.
     - next_action, target_color, target_entity_id, reason이 포함된 JSON을 요구하세요.
     - 실행 전에 parse_agent_decision으로 validate하세요.
 
@@ -353,36 +383,56 @@ async def run_agent(
     last_result: dict[str, Any] | None = None
     tracker = CompletionTracker(completion) if completion is not None else None
 
+    async def run_step(awaitable: Any, label: str) -> Any:
+        if tracker is None:
+            return await awaitable
+        return await tracker.wait_for_remaining(awaitable, label)
+
     for cycle in range(1, max_cycles + 1):
         print(f"\n[Level 0] Cycle {cycle}")
-        if tracker is not None:
-            first_cycle = tracker.started_at is None
-            tracker.start_first_cycle()
-            if first_cycle:
-                tracker.print_start()
-            reason = await tracker.stop_reason_from_scene(ctx)
-            if reason is not None:
-                tracker.mark_ended(reason)
-                print(f"Completion target reached before cycle action: {reason}.")
+        try:
+            if tracker is not None:
+                first_cycle = tracker.started_at is None
+                tracker.start_first_cycle()
+                if first_cycle:
+                    tracker.print_start()
+                reason = await tracker.stop_reason_from_scene(ctx)
+                if reason is not None:
+                    tracker.mark_ended(reason)
+                    print(f"Completion target reached before cycle action: {reason}.")
+                    break
+
+            observation = await run_step(observe_world(ctx, memory), "observe_world")
+            decision = await run_step(
+                decide_next_action(task, observation, memory, last_result),
+                "LLM decision",
+            )
+            print("LLM decision:", decision)
+
+            if decision.next_action == "stop":
                 break
 
-        observation = await observe_world(ctx, memory)
-        decision = await decide_next_action(task, observation, memory, last_result)
-        print("LLM decision:", decision)
-
-        if decision.next_action == "stop":
+            action_result = await run_step(
+                execute_decision(ctx, decision, observation, memory),
+                "execute action",
+            )
+            verified = await run_step(
+                verify_outcome(ctx, decision, action_result),
+                "verify outcome",
+            )
+            update_memory(memory, observation, decision, verified)
+            last_result = verified
+            if tracker is not None:
+                reason = await tracker.stop_reason_from_scene(ctx)
+                if reason is not None:
+                    tracker.mark_ended(reason)
+                    print(f"Completion target reached after cycle action: {reason}.")
+                    break
+        except CompletionTimeout as exc:
+            if tracker is not None:
+                tracker.mark_ended(str(exc))
+            print(f"Completion timer expired: {exc}.")
             break
-
-        action_result = await execute_decision(ctx, decision, observation, memory)
-        verified = await verify_outcome(ctx, decision, action_result)
-        update_memory(memory, observation, decision, verified)
-        last_result = verified
-        if tracker is not None:
-            reason = await tracker.stop_reason_from_scene(ctx)
-            if reason is not None:
-                tracker.mark_ended(reason)
-                print(f"Completion target reached after cycle action: {reason}.")
-                break
 
     if tracker is not None:
         await tracker.print_summary_from_scene(ctx)
@@ -392,10 +442,11 @@ async def run_agent(
 async def run(ctx: Any) -> None:
     print(TASK)
     print("Level 0 full-state project starter 실행")
+    completion = await prepare_evaluation_round(ctx, level=0)
     memory = await run_agent(
         ctx,
         max_cycles=10_000,
-        completion=CompletionConfig(level=0, max_elapsed_s=600),
+        completion=completion,
     )
     print("\n실행 완료.")
     print(f"Delivered count: {memory.delivered_count}")

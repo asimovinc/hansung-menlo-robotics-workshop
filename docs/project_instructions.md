@@ -375,33 +375,55 @@ All teams must:
 
 ## Evaluation Criteria
 
-The final score is not capped at 100 points. Cube delivery points are earned within a 10-minute simulation run, and code quality and presentation points are added on top.
+Evaluation is based on round-by-round cube delivery, code implementation, and presentations. Each delivery round counts at most 12 successful cube deliveries. The round timer is strict: if time expires while code is waiting for an LLM/VLM/API result or robot action result, the run stops immediately and the current delivered-cube count and delivery score are printed. If the robot falls and cannot recover without restarting, the run stops, the remaining time is recorded, and the team may restart within the remaining time for that round.
 
 | Category | Evaluation metric | Points |
 | --- | --- | --- |
-| 1. Cube Delivery | Successful deliveries within the 10-minute simulation run | Level-based, no maximum |
-| 2. Code Structure and Quality | Judge review of source code and runtime behavior | Up to 10 |
-| 3. Presentation | Theory, design decisions, robot behavior, reflection | Up to 10 |
+| 1. Round Delivery | Successful cube deliveries within each round, capped at 12 cubes per round | Level-based |
+| 2. Code Implementation | LLM decision loop implementation and hard-coding check | Up to 10 |
+| 3. Presentation | Interim and final presentation scores | Up to 30 |
 
-### 1. Cube Delivery
+### Round Timing
 
-Each successful cube delivery completed within the 10-minute simulation run earns points based on the team's selected project level. There is no cap on the number of cube deliveries that may count.
-
-| Project level | Points per successful delivery |
+| Round | Time limit |
 | --- | --- |
-| Level 0: Full-State Agent | 10 |
-| Level 1: Adaptive Navigation Agent | 20 |
-| Level 2: Autonomous Vision Agent | 30 |
+| Round 1 | 5 minutes |
+| Round 2 | 10 minutes |
+| Round 3 | 15 minutes |
 
-Incorrect placements may reduce credit or terminate the run depending on the benchmark rules.
+All levels use the same round setup for a given round and setup option number. The start pose and cube color order are shared; only the scoring formula changes by level.
 
-### 2. Code Structure and Quality: 10 Points
+### 1. Round Delivery
 
-Judges award up to 10 points based on the submitted source code and observed runtime behavior.
+Each round is scored by the number of successfully moved cubes, up to 12 cubes per round. Incorrect placements may reduce credit or terminate the run depending on the benchmark rules.
 
-### 3. Presentation: 10 Points
+| Project level | Delivery score |
+| --- | --- |
+| Level 0: Full-State Agent | 5 points per successfully moved cube |
+| Level 1: Adaptive Navigation Agent | 60 points for the first successful cube move, then 20 points per additional successfully moved cube |
+| Level 2: Autonomous Vision Agent | 60 points for the first successful cube move, then 40 points per additional successfully moved cube |
 
-Teams should demonstrate their robot behavior by running the project code. Presentation slides should focus on the following summary topics rather than detailed implementation walkthroughs.
+### 2. Code Implementation: 10 Points
+
+Judges award up to 10 points for the required LLM judgment loop implementation and for confirming that the solution is not a hard-coded fixed script.
+
+Evaluation elements:
+
+- Compliance with the selected level's allowed-information rules
+- General strategy rather than a fixed hard-coded sequence
+- Meaningful LLM decision loop and structured output validation
+- Clear observation, decision, action, verification, and memory separation
+- Recovery behavior after failed navigation, pick, or place actions
+- Readable code structure and useful execution logs
+
+### 3. Presentation: 30 Points
+
+Teams should demonstrate their robot behavior by running the project code. Presentation slides should focus on summary topics rather than detailed line-by-line implementation walkthroughs.
+
+| Presentation | Points |
+| --- | --- |
+| Interim presentation | 10 |
+| Final presentation | 20 |
 
 Interim presentation:
 

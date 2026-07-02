@@ -1,7 +1,5 @@
 # Starter code: do not edit this shared file for project submissions.
 # Put project code in a project notebook or a new file under menlo_runner/programs/.
-# 스타터 코드: 프로젝트 제출을 위해 이 공용 파일을 직접 수정하지 마세요.
-# 프로젝트 코드는 프로젝트 노트북 또는 menlo_runner/programs/의 새 파일에 작성하세요.
 
 from __future__ import annotations
 
@@ -11,6 +9,8 @@ from typing import Any
 
 HFOV_HALF_DEG = 30.0
 MIN_BLOB_AREA = 200
+DEFAULT_COMPRESSED_MAX_WIDTH = 800
+DEFAULT_COMPRESSED_JPEG_QUALITY = 70
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,35 @@ def decode_jpeg(jpeg_bytes: bytes) -> Any:
     if image is None:
         raise ValueError("Could not decode JPEG bytes.")
     return image
+
+
+def compress_jpeg(
+    jpeg_bytes: bytes,
+    *,
+    max_width: int = DEFAULT_COMPRESSED_MAX_WIDTH,
+    quality: int = DEFAULT_COMPRESSED_JPEG_QUALITY,
+) -> bytes:
+    """Resize/re-encode a camera JPEG before optional VLM calls.
+
+    Use a higher max_width/quality for reading small signs, and lower values
+    when the VLM only needs coarse scene context.
+    """
+    if max_width <= 0:
+        raise ValueError("max_width must be greater than zero.")
+    if not 1 <= quality <= 100:
+        raise ValueError("quality must be between 1 and 100.")
+
+    cv2, _ = _cv2_np()
+    image = decode_jpeg(jpeg_bytes)
+    height, width = image.shape[:2]
+    if width > max_width:
+        scale = max_width / width
+        image = cv2.resize(image, (max_width, max(1, int(height * scale))))
+
+    ok, encoded = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+    if not ok:
+        raise RuntimeError("Could not encode compressed JPEG.")
+    return encoded.tobytes()
 
 
 def detect_color_blobs(

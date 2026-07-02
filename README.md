@@ -29,8 +29,8 @@ not need to clone the repository, install Python locally, or set up the IDE scaf
    notebook cell.
 5. Open the printed viewer URL in Google Chrome when instructed.
 6. Fill in the TODO sections inside the notebook.
-7. Run the final project cell. Project starter notebooks run the 10-minute scored
-   simulation by default.
+7. Run the final project cell. Project starter notebooks ask for round timing
+   and stop after at most 12 delivered cubes.
 
 Required Colab secret names:
 
@@ -64,8 +64,8 @@ mainly inside the project notebook files from `notebooks/project/`.
 4. Run the API key and robot context cells.
 5. Open the printed Menlo viewer URL in Chrome.
 6. Fill in the TODO sections in the notebook or edit the matching Python starter.
-7. Run the final project cell. It uses the local cloned code and runs the
-   10-minute scored simulation by default.
+7. Run the final project cell. It uses the local cloned code, asks for round
+   timing, and stops after at most 12 delivered cubes.
 
 In this workflow, local edits to `menlo_runner/` are available to the notebook
 because the package is installed in editable mode.
@@ -83,10 +83,13 @@ from a terminal or IDE run configuration.
    `py -m menlo_runner.cli level-1-starter`.
 5. Open the printed Menlo viewer URL in Chrome.
 
-Project starter commands run the same 10-minute scored simulation used by the
-starter notebooks. Delivery points are uncapped: Level 0 gives 10 points per
-delivery, Level 1 gives 20 points per delivery, and Level 2 gives 30 points per
-delivery.
+Project starter commands run the same scored workflow used by the starter
+notebooks. The starter asks for `round1`, `round2`, `round3`, or `manual`
+timing. Round limits are 5, 10, and 15 minutes, and every round stops after at
+most 12 delivered cubes. Level 0 gives 5 points per moved cube. Level 1 gives
+60 points for the first successful cube, then 20 points per additional cube.
+Level 2 gives 60 points for the first successful cube, then 40 points per
+additional cube.
 
 ## Local IDE Setup
 

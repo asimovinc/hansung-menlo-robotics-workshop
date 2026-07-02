@@ -1,7 +1,5 @@
 # Starter code: do not edit this shared file for project submissions.
 # Put project code in a project notebook or a new file under menlo_runner/programs/.
-# 스타터 코드: 프로젝트 제출을 위해 이 공용 파일을 직접 수정하지 마세요.
-# 프로젝트 코드는 프로젝트 노트북 또는 menlo_runner/programs/의 새 파일에 작성하세요.
 
 from __future__ import annotations
 
@@ -13,7 +11,13 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from menlo_runner.basics import print_position, screenshot
-from menlo_runner.completion import CompletionConfig, level_from_program_name
+from menlo_runner.completion import (
+    DEFAULT_MAX_DELIVERED_CUBES,
+    DEFAULT_ROUND,
+    CompletionConfig,
+    completion_config_for_round,
+    level_from_program_name,
+)
 from menlo_runner.config import load_config
 from menlo_runner.context import MenloAuthError, open_robot_context
 from menlo_runner.scene import get_scene_text
@@ -89,14 +93,28 @@ async def _run_completion_in_existing_context(
     program_name: str,
     *,
     level: int | None,
+    round_name: str,
     max_delivered_cubes: int | None,
     max_elapsed_s: float | None,
     max_cycles: int | None,
 ) -> None:
-    completion = CompletionConfig(
-        level=level if level is not None else level_from_program_name(program_name),
-        max_delivered_cubes=max_delivered_cubes,
-        max_elapsed_s=max_elapsed_s,
+    resolved_level = level if level is not None else level_from_program_name(program_name)
+    completion = (
+        CompletionConfig(
+            level=resolved_level,
+            max_delivered_cubes=max_delivered_cubes,
+            max_elapsed_s=max_elapsed_s,
+        )
+        if max_elapsed_s is not None
+        else completion_config_for_round(
+            resolved_level,
+            round_name=round_name,
+            max_delivered_cubes=(
+                DEFAULT_MAX_DELIVERED_CUBES
+                if max_delivered_cubes is None
+                else max_delivered_cubes
+            ),
+        )
     )
     spec = _program_spec(program_name)
     if spec.require_tokamak and not ctx.config.tokamak_api_key:
@@ -132,6 +150,7 @@ async def _run_completion(
     program_name: str,
     *,
     level: int | None,
+    round_name: str,
     max_delivered_cubes: int | None,
     max_elapsed_s: float | None,
     max_cycles: int | None,
@@ -144,6 +163,7 @@ async def _run_completion(
             ctx,
             program_name,
             level=level,
+            round_name=round_name,
             max_delivered_cubes=max_delivered_cubes,
             max_elapsed_s=max_elapsed_s,
             max_cycles=max_cycles,
@@ -235,6 +255,7 @@ async def _interactive_session() -> None:
                         ctx,
                         complete_args.program,
                         level=complete_args.level,
+                        round_name=complete_args.round,
                         max_delivered_cubes=complete_args.cubes,
                         max_elapsed_s=complete_args.seconds,
                         max_cycles=complete_args.max_cycles,
@@ -265,16 +286,22 @@ def build_completion_parser() -> argparse.ArgumentParser:
         help="Project level for scoring. Omit to infer from the program name.",
     )
     parser.add_argument(
+        "--round",
+        choices=("round1", "round2", "round3"),
+        default=DEFAULT_ROUND,
+        help=f"Round timing to use when --seconds is omitted (default: {DEFAULT_ROUND}).",
+    )
+    parser.add_argument(
         "--cubes",
         type=int,
-        default=None,
-        help="Optional stop target for delivered cubes. Omit for no cube cap.",
+        default=DEFAULT_MAX_DELIVERED_CUBES,
+        help=f"Stop target for delivered cubes (default: {DEFAULT_MAX_DELIVERED_CUBES}).",
     )
     parser.add_argument(
         "--seconds",
         type=float,
-        default=600.0,
-        help="Stop after this many seconds from the first agent cycle start (default: 600).",
+        default=None,
+        help="Manual time limit in seconds. Omit to use --round timing.",
     )
     parser.add_argument(
         "--max-cycles",
@@ -316,16 +343,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Project level for scoring. Omit to infer from the program name.",
     )
     complete.add_argument(
+        "--round",
+        choices=("round1", "round2", "round3"),
+        default=DEFAULT_ROUND,
+        help=f"Round timing to use when --seconds is omitted (default: {DEFAULT_ROUND}).",
+    )
+    complete.add_argument(
         "--cubes",
         type=int,
-        default=None,
-        help="Optional stop target for delivered cubes. Omit for no cube cap.",
+        default=DEFAULT_MAX_DELIVERED_CUBES,
+        help=f"Stop target for delivered cubes (default: {DEFAULT_MAX_DELIVERED_CUBES}).",
     )
     complete.add_argument(
         "--seconds",
         type=float,
-        default=600.0,
-        help="Stop after this many seconds from the first agent cycle start (default: 600).",
+        default=None,
+        help="Manual time limit in seconds. Omit to use --round timing.",
     )
     complete.add_argument(
         "--max-cycles",
@@ -357,6 +390,7 @@ def main() -> None:
                 _run_completion(
                     args.program,
                     level=args.level,
+                    round_name=args.round,
                     max_delivered_cubes=args.cubes,
                     max_elapsed_s=args.seconds,
                     max_cycles=args.max_cycles,

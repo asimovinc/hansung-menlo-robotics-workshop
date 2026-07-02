@@ -1,1 +1,0 @@
-"""Local evaluation submissions package."""

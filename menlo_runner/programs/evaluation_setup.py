@@ -5,6 +5,14 @@ import random
 from dataclasses import dataclass
 from typing import Any
 
+from menlo_runner.completion import (
+    DEFAULT_MAX_DELIVERED_CUBES,
+    DEFAULT_ROUND,
+    ROUND_TIME_LIMITS_S,
+    CompletionConfig,
+    completion_config_for_round,
+)
+
 
 CUBE_COLOR_ORDER_KEYS = (
     1,
@@ -34,9 +42,9 @@ CUBE_COLOR_ORDER_KEYS = (
 
 START_X_RANGE = (-4.0, 2.1)
 START_Y_RANGE = (-6.5, 6.4)
-DEFAULT_SETUP_SEED = "interim"
 DEFAULT_OBSTACLE_CLEARANCE_M = 0.45
 MAX_START_SAMPLES = 10_000
+ROUND_OPTION_COUNT = 50
 
 
 @dataclass(frozen=True)
@@ -48,24 +56,44 @@ class EvaluationSetup:
     start_y: float
 
 
-def _rng_for(level: int, setup_seed: str) -> random.Random:
-    return random.Random(f"hansung-menlo-eval:{setup_seed}:level-{level}")
+def _rng_for_round_option(round_name: str, setup_option: int) -> random.Random:
+    normalized = normalize_round_name(round_name)
+    return random.Random(f"hansung-menlo-eval:{normalized}:option-{setup_option}")
 
 
-def choose_evaluation_setup(level: int, setup_seed: str = DEFAULT_SETUP_SEED) -> EvaluationSetup:
-    """Choose the shared hidden setup for a project level.
+def normalize_round_name(round_name: str) -> str:
+    normalized = round_name.strip().lower().replace("_", "").replace("-", "")
+    if normalized in {"1", "round1"}:
+        return "round1"
+    if normalized in {"2", "round2"}:
+        return "round2"
+    if normalized in {"3", "round3"}:
+        return "round3"
+    if normalized == "manual":
+        return "manual"
+    raise ValueError("round must be round1, round2, round3, or manual.")
 
-    All teams evaluated with the same level and setup_seed get the same cube
-    order key and start pose. Different levels intentionally get different
-    deterministic draws.
-    """
+
+def validate_setup_option(setup_option: int) -> int:
+    if not 1 <= setup_option <= ROUND_OPTION_COUNT:
+        raise ValueError(f"setup option must be between 1 and {ROUND_OPTION_COUNT}.")
+    return setup_option
+
+
+def choose_round_evaluation_setup(
+    level: int,
+    round_name: str,
+    setup_option: int,
+) -> EvaluationSetup:
+    """Choose one of 50 shared setup options for a scored round."""
     if level not in {0, 1, 2}:
         raise ValueError("level must be one of 0, 1, or 2")
-
-    rng = _rng_for(level, setup_seed)
+    setup_option = validate_setup_option(setup_option)
+    normalized_round = normalize_round_name(round_name)
+    rng = _rng_for_round_option(normalized_round, setup_option)
     return EvaluationSetup(
         level=level,
-        setup_seed=setup_seed,
+        setup_seed=f"{normalized_round}-{setup_option:02d}",
         cube_color_order_key=rng.choice(CUBE_COLOR_ORDER_KEYS),
         start_x=rng.uniform(*START_X_RANGE),
         start_y=rng.uniform(*START_Y_RANGE),
@@ -102,14 +130,14 @@ def point_is_clear_of_obstacles(
     return True
 
 
-def choose_clear_start_xy(
-    level: int,
-    setup_seed: str,
+def choose_clear_round_start_xy(
+    round_name: str,
+    setup_option: int,
     obstacles: list[dict[str, Any]],
     *,
     clearance_m: float = DEFAULT_OBSTACLE_CLEARANCE_M,
 ) -> tuple[float, float]:
-    rng = _rng_for(level, setup_seed)
+    rng = _rng_for_round_option(round_name, validate_setup_option(setup_option))
     rng.choice(CUBE_COLOR_ORDER_KEYS)
 
     for _attempt in range(MAX_START_SAMPLES):
@@ -119,7 +147,7 @@ def choose_clear_start_xy(
             return x, y
 
     raise RuntimeError(
-        "Could not sample a start position clear of scene_layout obstacles. "
+        "Could not sample a round start position clear of scene_layout obstacles. "
         f"Try lowering clearance_m below {clearance_m}."
     )
 
@@ -145,9 +173,11 @@ async def get_scene_layout(ctx: Any) -> dict[str, Any] | None:
     return layout if isinstance(layout, dict) else None
 
 
-async def apply_clear_start_from_layout(
+async def apply_clear_round_start_from_layout(
     ctx: Any,
     setup: EvaluationSetup,
+    round_name: str,
+    setup_option: int,
     *,
     clearance_m: float = DEFAULT_OBSTACLE_CLEARANCE_M,
 ) -> EvaluationSetup:
@@ -161,9 +191,9 @@ async def apply_clear_start_from_layout(
         print("scene_layout obstacles unavailable; using unfiltered sampled start position.")
         return setup
 
-    x, y = choose_clear_start_xy(
-        setup.level,
-        setup.setup_seed,
+    x, y = choose_clear_round_start_xy(
+        round_name,
+        setup_option,
         obstacles,
         clearance_m=clearance_m,
     )
@@ -201,30 +231,72 @@ async def go_to_start_position(ctx: Any, setup: EvaluationSetup) -> Any:
     return result
 
 
-async def run(ctx: Any) -> None:
-    level = int(os.environ.get("EVAL_LEVEL", "0"))
-    setup_seed = os.environ.get("EVAL_SETUP_SEED", DEFAULT_SETUP_SEED)
-    clearance_m = float(os.environ.get("EVAL_OBSTACLE_CLEARANCE_M", DEFAULT_OBSTACLE_CLEARANCE_M))
-    setup = choose_evaluation_setup(level, setup_seed)
+def _prompt(text: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default else ""
+    try:
+        value = input(f"{text}{suffix}: ").strip()
+    except EOFError:
+        value = ""
+    return value or default
 
-    setup = await apply_clear_start_from_layout(ctx, setup, clearance_m=clearance_m)
 
-    print("=" * 60)
-    print("Evaluation setup")
-    print(f"level: {setup.level}")
-    print(f"setup_seed: {setup.setup_seed}")
-    print(f"cube_color_order_key: {setup.cube_color_order_key}")
-    print(f"start_xy: ({setup.start_x:+.3f}, {setup.start_y:+.3f})")
-    print(f"obstacle_clearance_m: {clearance_m:.2f}")
-    print("=" * 60)
+async def prepare_evaluation_round(
+    ctx: Any,
+    level: int,
+    *,
+    clearance_m: float = DEFAULT_OBSTACLE_CLEARANCE_M,
+) -> CompletionConfig:
+    """Prompt for round timing/setup and optionally place the robot at the shared start.
 
-    await reload_current_scene(ctx)
+    Teams can skip shared setup by leaving the option blank. For live evaluation,
+    enter the announced round and setup option number from 1 to 50.
+    """
+    env_round = os.environ.get("MENLO_EVAL_ROUND")
+    round_name = normalize_round_name(env_round or _prompt("Round (round1/round2/round3/manual)", DEFAULT_ROUND))
+    manual_seconds = None
+    if round_name == "manual":
+        env_seconds = os.environ.get("MENLO_EVAL_SECONDS")
+        seconds_text = env_seconds or _prompt("Manual round time in seconds", str(ROUND_TIME_LIMITS_S[DEFAULT_ROUND]))
+        manual_seconds = float(seconds_text)
 
-    input(
-        "In the viewer seed box, enter the cube_color_order_key above, "
-        "apply/reset the scene, then press Enter here..."
+    env_option = os.environ.get("MENLO_EVAL_OPTION")
+    option_text = env_option if env_option is not None else _prompt(
+        f"Evaluation setup option 1-{ROUND_OPTION_COUNT} (blank to skip shared setup)",
+        "",
     )
+    if option_text:
+        setup_option = validate_setup_option(int(option_text))
+        setup = choose_round_evaluation_setup(level, round_name, setup_option)
+        setup = await apply_clear_round_start_from_layout(
+            ctx,
+            setup,
+            round_name,
+            setup_option,
+            clearance_m=clearance_m,
+        )
 
-    await go_to_start_position(ctx, setup)
+        print("=" * 60)
+        print("Evaluation setup")
+        print(f"round: {round_name}")
+        print(f"setup_option: {setup_option}")
+        print(f"level: {setup.level}")
+        print(f"cube_color_order_key: {setup.cube_color_order_key}")
+        print(f"start_xy: ({setup.start_x:+.3f}, {setup.start_y:+.3f})")
+        print(f"obstacle_clearance_m: {clearance_m:.2f}")
+        print("=" * 60)
 
-    print("Evaluation setup complete.")
+        await reload_current_scene(ctx)
+        _prompt(
+            "In the viewer seed box, enter the cube_color_order_key above, "
+            "apply/reset the scene, then press Enter here..."
+        )
+        await go_to_start_position(ctx, setup)
+    else:
+        print("Shared evaluation setup skipped; using the current scene and robot pose.")
+
+    return completion_config_for_round(
+        level,
+        round_name=round_name,
+        manual_seconds=manual_seconds,
+        max_delivered_cubes=DEFAULT_MAX_DELIVERED_CUBES,
+    )

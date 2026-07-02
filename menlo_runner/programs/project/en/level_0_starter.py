@@ -8,17 +8,31 @@ Sections marked SUPPORT CODE provide small wrappers and data structures so you d
 not need to rewrite workshop setup code. Sections marked STUDENT TODO are where
 your project design belongs.
 
+Run setup:
+- By default, run(ctx) asks for round1, round2, round3, or manual timing.
+  Round limits are 5, 10, and 15 minutes, and every round stops after at most
+  12 delivered cubes.
+- For normal practice, press Enter to use round2 and leave the evaluation setup
+  option blank. This keeps the current scene and robot pose.
+- For shared evaluation practice, enter the announced round and an option number
+  from 1 to 50. The starter prints the cube_color_order_key and moves the robot
+  to the matching deterministic start position after you apply/reset the viewer.
+- Manual timing is available by typing manual, then entering the time in seconds.
+
 Level 0 rule: scene_state, exact entity IDs, and entity-target go_to are allowed.
 The main challenge is still to build a meaningful LLM-assisted high-level
 decision loop rather than a fixed script.
 """
 
+import asyncio
 import json
 import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from menlo_runner.completion import CompletionConfig, CompletionTracker
+from menlo_runner.completion import CompletionConfig, CompletionTimeout, CompletionTracker
+from menlo_runner.perception import compress_jpeg
+from menlo_runner.programs.evaluation_setup import prepare_evaluation_round
 from menlo_runner.scene import COLOR_TO_PAD, delivered_cube_ids, held_cube_info, visible_cubes
 
 
@@ -172,6 +186,20 @@ async def get_robot_status(ctx: Any) -> Any:
     return await ctx.state("robot_status")
 
 
+async def get_camera_frame(
+    ctx: Any,
+    *,
+    compressed: bool = False,
+    max_width: int = 800,
+    quality: int = 70,
+) -> bytes:
+    """Capture the POV camera frame, optionally resized/re-encoded for VLM use."""
+    jpeg = await ctx.get_vision("pov")
+    if compressed:
+        return compress_jpeg(jpeg, max_width=max_width, quality=quality)
+    return jpeg
+
+
 async def observe_full_state(ctx: Any) -> Observation:
     """Collect a project Level 0 observation from scene_state helpers."""
     robot_status = await get_robot_status(ctx)
@@ -248,6 +276,8 @@ async def decide_next_action(
     TODO:
     - Build a prompt from build_decision_context(...).
     - Call menlo_runner.llm.call_llm or your approved LLM helper.
+      If the helper is synchronous/blocking, use await asyncio.to_thread(...)
+      so the strict round timer can stop waiting when time expires.
     - Require JSON with next_action, target_color, target_entity_id, and reason.
     - Validate with parse_agent_decision before execution.
 
@@ -355,36 +385,56 @@ async def run_agent(
     last_result: dict[str, Any] | None = None
     tracker = CompletionTracker(completion) if completion is not None else None
 
+    async def run_step(awaitable: Any, label: str) -> Any:
+        if tracker is None:
+            return await awaitable
+        return await tracker.wait_for_remaining(awaitable, label)
+
     for cycle in range(1, max_cycles + 1):
         print(f"\n[Level 0] Cycle {cycle}")
-        if tracker is not None:
-            first_cycle = tracker.started_at is None
-            tracker.start_first_cycle()
-            if first_cycle:
-                tracker.print_start()
-            reason = await tracker.stop_reason_from_scene(ctx)
-            if reason is not None:
-                tracker.mark_ended(reason)
-                print(f"Completion target reached before cycle action: {reason}.")
+        try:
+            if tracker is not None:
+                first_cycle = tracker.started_at is None
+                tracker.start_first_cycle()
+                if first_cycle:
+                    tracker.print_start()
+                reason = await tracker.stop_reason_from_scene(ctx)
+                if reason is not None:
+                    tracker.mark_ended(reason)
+                    print(f"Completion target reached before cycle action: {reason}.")
+                    break
+
+            observation = await run_step(observe_world(ctx, memory), "observe_world")
+            decision = await run_step(
+                decide_next_action(task, observation, memory, last_result),
+                "LLM decision",
+            )
+            print("LLM decision:", decision)
+
+            if decision.next_action == "stop":
                 break
 
-        observation = await observe_world(ctx, memory)
-        decision = await decide_next_action(task, observation, memory, last_result)
-        print("LLM decision:", decision)
-
-        if decision.next_action == "stop":
+            action_result = await run_step(
+                execute_decision(ctx, decision, observation, memory),
+                "execute action",
+            )
+            verified = await run_step(
+                verify_outcome(ctx, decision, action_result),
+                "verify outcome",
+            )
+            update_memory(memory, observation, decision, verified)
+            last_result = verified
+            if tracker is not None:
+                reason = await tracker.stop_reason_from_scene(ctx)
+                if reason is not None:
+                    tracker.mark_ended(reason)
+                    print(f"Completion target reached after cycle action: {reason}.")
+                    break
+        except CompletionTimeout as exc:
+            if tracker is not None:
+                tracker.mark_ended(str(exc))
+            print(f"Completion timer expired: {exc}.")
             break
-
-        action_result = await execute_decision(ctx, decision, observation, memory)
-        verified = await verify_outcome(ctx, decision, action_result)
-        update_memory(memory, observation, decision, verified)
-        last_result = verified
-        if tracker is not None:
-            reason = await tracker.stop_reason_from_scene(ctx)
-            if reason is not None:
-                tracker.mark_ended(reason)
-                print(f"Completion target reached after cycle action: {reason}.")
-                break
 
     if tracker is not None:
         await tracker.print_summary_from_scene(ctx)
@@ -394,10 +444,11 @@ async def run_agent(
 async def run(ctx: Any) -> None:
     print(TASK)
     print("Running Level 0 full-state project starter")
+    completion = await prepare_evaluation_round(ctx, level=0)
     memory = await run_agent(
         ctx,
         max_cycles=10_000,
-        completion=CompletionConfig(level=0, max_elapsed_s=600),
+        completion=completion,
     )
     print("\nRun complete.")
     print(f"Delivered count: {memory.delivered_count}")

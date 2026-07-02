@@ -1,7 +1,7 @@
 ﻿import unittest
 import importlib.util
 
-from menlo_runner.perception import detect_color_blobs
+from menlo_runner.perception import compress_jpeg, decode_jpeg, detect_color_blobs
 from menlo_runner.navigation import angle_error_deg
 
 
@@ -26,6 +26,21 @@ class PerceptionTest(unittest.TestCase):
         ok, encoded = cv2.imencode(".jpg", blank)
         self.assertTrue(ok)
         self.assertEqual(detect_color_blobs(encoded.tobytes()), [])
+
+    @unittest.skipIf(importlib.util.find_spec("cv2") is None, "opencv-python is not installed")
+    def test_compress_jpeg_resizes_and_keeps_valid_jpeg(self):
+        import cv2
+        import numpy as np
+
+        image = np.zeros((120, 240, 3), dtype=np.uint8)
+        ok, encoded = cv2.imencode(".jpg", image)
+        self.assertTrue(ok)
+
+        compressed = compress_jpeg(encoded.tobytes(), max_width=80, quality=50)
+        decoded = decode_jpeg(compressed)
+
+        self.assertEqual(decoded.shape[1], 80)
+        self.assertLess(len(compressed), len(encoded.tobytes()))
 
 
 if __name__ == "__main__":

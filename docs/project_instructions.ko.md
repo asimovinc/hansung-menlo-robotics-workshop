@@ -231,63 +231,73 @@ Project starter는 Python file과 notebook 양쪽에 있습니다.
 - English Python starters: `menlo_runner/programs/project/en/`
 - Korean Python starters: `menlo_runner/programs/project/ko/`
 
-Starter run path는 기본적으로 10분 scored simulation을 실행합니다.
+Starter run path와 completion wrapper는 라운드별 제한 시간에 맞춰 scored simulation을 실행할 수 있습니다.
 
-## Evaluation Criteria
+## 평가 기준
 
-최종 점수에는 100점 상한이 없습니다. Cube delivery 점수는 10분 simulation run 안에서 획득하며,
-code quality와 presentation 점수를 더합니다.
+평가는 라운드별 큐브 이동 성과, 코드 구현, 발표 점수를 합산합니다. 각 라운드는 성공적으로 이동한 큐브를 최대 12개까지만 인정합니다. 라운드 타이머는 엄격하게 적용됩니다. 코드가 LLM/VLM/API 응답이나 robot action 결과를 기다리는 중에 시간이 끝나도 즉시 run을 중단하고, 현재까지 이동한 큐브 개수와 delivery score를 출력합니다. 로봇이 넘어져서 재시작 없이 복구가 불가능한 경우에는 run을 중단하고 남은 시간을 기록하며, 해당 라운드의 남은 시간 안에서 재시작할 수 있습니다.
 
-| Category | Evaluation metric | Points |
+| 항목 | 평가 내용 | 점수 |
 | --- | --- | --- |
-| 1. Cube Delivery | 10분 simulation run 안의 successful deliveries | Level-based, no maximum |
-| 2. Code Structure and Quality | Source code와 runtime behavior에 대한 judge review | Up to 10 |
-| 3. Presentation | Theory, design decisions, robot behavior, reflection | Up to 10 |
+| 1. 라운드별 작업 수행 | 라운드별 상한 12개 내 성공 큐브 이동 개수 | 레벨별 산정 |
+| 2. 코드 구현 | LLM 판단 루프 구현 및 하드코딩 확인 | 최대 10점 |
+| 3. 발표 | 중간 발표와 최종 발표 | 최대 30점 |
 
-### 1. Cube Delivery
+### 라운드 시간
 
-10분 simulation run 안에 완료한 successful cube delivery마다 선택한 project level에 따라 점수를
-받습니다. 점수로 인정되는 cube delivery 개수에는 상한이 없습니다.
-
-| Project level | Points per successful delivery |
+| 라운드 | 제한 시간 |
 | --- | --- |
-| Level 0: Full-State Agent | 10 |
-| Level 1: Adaptive Navigation Agent | 20 |
-| Level 2: Autonomous Vision Agent | 30 |
+| 라운드 1 | 5분 |
+| 라운드 2 | 10분 |
+| 라운드 3 | 15분 |
 
-Incorrect placement는 benchmark rules에 따라 감점되거나 run 종료 사유가 될 수 있습니다.
+같은 라운드와 같은 setup option 번호를 사용하면 모든 level에서 시작 위치와 cube color order가 동일합니다. Level별로 달라지는 것은 scoring formula뿐입니다.
 
-### 2. Code Structure and Quality: 10 Points
+### 1. 라운드별 작업 수행
 
-Judge는 제출 source code와 observed runtime behavior를 바탕으로 최대 10점을 부여합니다.
+각 라운드는 성공적으로 이동한 큐브 개수로 평가하며, 라운드별 최대 인정 개수는 12개입니다. 잘못된 위치에 놓은 경우에는 benchmark 규칙에 따라 감점되거나 run이 종료될 수 있습니다.
+
+| 프로젝트 레벨 | 큐브 이동 점수 |
+| --- | --- |
+| Level 0: Full-State Agent | 성공적으로 이동한 큐브 1개당 5점 |
+| Level 1: Adaptive Navigation Agent | 첫 큐브 이동 성공 시 60점, 이후 성공적으로 이동한 큐브 1개당 20점 |
+| Level 2: Autonomous Vision Agent | 첫 큐브 이동 성공 시 60점, 이후 성공적으로 이동한 큐브 1개당 40점 |
+
+### 2. 코드 구현: 10점
+
+Judge는 필수 LLM 판단 루프가 구현되어 있는지, 고정 hard-coded script가 아닌지, 제출 코드와 실행 behavior를 바탕으로 최대 10점을 부여합니다.
 
 평가 요소:
 
-- Level rules 준수
-- Hard-coded fixed script가 아닌 general strategy
-- Correct LLM usage and structured output validation
-- Clear observation, decision, action, verification, memory separation
-- Recovery behavior
-- Readable code structure and logs
+- 선택한 level의 허용 정보 규칙 준수
+- 고정 action sequence가 아닌 일반화 가능한 strategy
+- 의미 있는 LLM decision loop와 structured output validation
+- observation, decision, action, verification, memory의 명확한 분리
+- navigation, pick, place 실패 후 recovery behavior
+- 읽기 쉬운 코드 구조와 유용한 실행 로그
 
-### 3. Presentation: 10 Points
+### 3. 발표: 30점
 
-팀은 project code를 실행해 robot behavior를 시연해야 합니다. Presentation slide는 세부 구현
-line-by-line 설명보다 다음 요약 주제에 집중하세요.
+팀은 project code를 실행하여 robot behavior를 시연해야 합니다. Presentation slide는 line-by-line 구현 설명보다 핵심 설계와 결과 요약에 집중하세요.
 
-Interim presentation:
+| 발표 | 점수 |
+| --- | --- |
+| 중간 발표 | 10점 |
+| 최종 발표 | 20점 |
 
-- Implemented robot action flow
-- Role of the LLM
-- Current successes and limitations
-- Improvement plan
+중간 발표:
 
-Final presentation:
+- 구현한 robot action flow
+- LLM의 역할
+- 현재 성공 사례와 한계
+- 개선 계획
 
-- Full robot action flow
-- Role of the LLM
-- Improvements and remaining limitations
-- How this would apply to real AI-agent robotics
+최종 발표:
+
+- 완성된 robot action flow
+- LLM의 역할
+- 중간 발표 이후 개선점과 남은 한계
+- 실제 AI-agent robotics로 확장할 수 있는 방향
 
 ## 제출 전 확인
 
@@ -295,4 +305,5 @@ Final presentation:
 - Text LLM decision loop가 실행 중 반복적으로 사용되는지 확인하세요.
 - LLM response validation이 있는지 확인하세요.
 - Action 후 verification과 memory update가 있는지 확인하세요.
-- Starter의 10분 scored simulation run에서 delivery score가 출력되는지 확인하세요.
+- Starter 또는 completion wrapper의 라운드별 scored simulation run에서 delivery score가 출력되는지 확인하세요.
+
